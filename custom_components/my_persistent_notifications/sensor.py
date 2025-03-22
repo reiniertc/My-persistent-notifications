@@ -1,17 +1,22 @@
 import logging
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.const import CONF_PLATFORM
 
 _LOGGER = logging.getLogger(__name__)
 
+CONF_FILTERS = "filters"
+
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the persistent notification sensor."""
-    async_add_entities([PersistentNotificationSensor(hass)], True)
+    filters = config.get(CONF_FILTERS, [])
+    async_add_entities([PersistentNotificationSensor(hass, filters)], True)
 
 class PersistentNotificationSensor(SensorEntity):
     """Sensor to track active persistent notifications."""
 
-    def __init__(self, hass):
+    def __init__(self, hass, filters):
         self._hass = hass
+        self._filters = filters
         self._state = 0
         self._attributes = {}
 
@@ -30,13 +35,7 @@ class PersistentNotificationSensor(SensorEntity):
     async def async_update(self):
         """Update the sensor state."""
         try:
-            # Haal meldingen op via Home Assistant helper
-            notifications = self._hass.data.get("persistent_notification")
-
-            if not notifications:
-                self._state = 0
-                self._attributes = {"notifications": []}
-                return
+            notifications = self._hass.data.get("persistent_notification", {})
 
             active = []
             for notif_id, notif in notifications.items():
@@ -48,9 +47,18 @@ class PersistentNotificationSensor(SensorEntity):
                     })
 
             self._state = len(active)
-            self._attributes = {
+
+            # Basisattribuut: alle notificaties
+            attributes = {
                 "notifications": active
             }
+
+            # Filter tellers toevoegen
+            for filter_prefix in self._filters:
+                count = sum(1 for n in active if n["id"].startswith(filter_prefix))
+                attributes[filter_prefix] = count
+
+            self._attributes = attributes
 
         except Exception as e:
             _LOGGER.error("Fout bij ophalen meldingen: %s", e)
