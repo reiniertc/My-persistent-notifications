@@ -1,37 +1,60 @@
 import logging
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.helpers.typing import HomeAssistantType, ConfigType, DiscoveryInfoType
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 _LOGGER = logging.getLogger(__name__)
 
-async def async_setup_platform(hass: HomeAssistantType, config: ConfigType, async_add_entities, discovery_info: DiscoveryInfoType = None):
-    """Set up the persistent notifications sensor."""
-    _LOGGER.info("🛎️ Persistent Notifications Sensor wordt geladen via async_setup_platform")
-    async_add_entities([PersistentNotificationSensor(hass)], True)
+API_ENDPOINT = "/api/persistent_notification"
 
 class PersistentNotificationSensor(SensorEntity):
+    """Sensor that shows the number of active persistent notifications."""
+
     def __init__(self, hass):
+        """Initialize the sensor."""
         self._hass = hass
-        self._attr_name = "Persistent Notifications"
-        self._attr_unique_id = "persistent_notifications_sensor"
-        self._state = 0
-        self._attr_extra_state_attributes = {"notifications": []}
+        self._state = None
+        self._attributes = {}
+
+    @property
+    def name(self):
+        return "Active Persistent Notifications"
+
+    @property
+    def state(self):
+        return self._state
+
+    @property
+    def extra_state_attributes(self):
+        return self._attributes
 
     async def async_update(self):
-        _LOGGER.debug("🔄 Sensor update gestart")
+        """Fetch persistent notifications from the Home Assistant API."""
+        try:
+            session = async_get_clientsession(self._hass)
+            url = f"{self._hass.config.api.base_url}{API_ENDPOINT}"
 
-        ws_client = await self._hass.helpers.aiohttp_client.async_get_clientsession().__aenter__()
-        ws = await ws_client.ws_connect("ws://localhost:8123/api/websocket")
+            headers = {
+                "Authorization": f"Bearer {self._hass.data['my_persistent_notifications_token']}",
+                "Content-Type": "application/json",
+            }
 
-        await ws.send_json({"type": "auth", "access_token": self._hass.data['auth'].access_token})
-        await ws.receive_json()  # auth_ok
-        await ws.send_json({"id": 1, "type": "persistent_notification/get"})
-        response = await ws.receive_json()
-        ws.close()
+            async with session.get(url, headers=headers) as response:
+                if response.status != 200:
+                    _LOGGER.error("Error fetching notifications, status: %s", response.status)
+                    self._state = 0
+                    self._attributes = {"error": f"Status {response.status}"}
+                    return
 
-        if "result" in response:
-            self._attr_extra_state_attributes["notifications"] = response["result"]
-            self._state = len(response["result"])
-        else:
-            self._attr_extra_state_attributes["notifications"] = []
+                data = await response.json()
+
+                self._state = len(data)
+                self._attributes = {
+                    "notifications": data
+                }
+
+        except Exception as e:
+            _LOGGER.error("Exception while fetching persistent notifications: %s", e)
             self._state = 0
+            self._attributes = {
+                "error": str(e)
+            }
