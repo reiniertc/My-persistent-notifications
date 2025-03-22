@@ -1,0 +1,9 @@
+{
+    "domain": "my_persistent_notifications",
+    "name": "Persistent Notifications Sensor",
+    "version": "1.0.0",
+    "documentation": "https://github.com/reiniertc/my_persistent_notifications",
+    "requirements": [],
+    "dependencies": [],
+    "codeowners": ["@reiniertc"]
+}
