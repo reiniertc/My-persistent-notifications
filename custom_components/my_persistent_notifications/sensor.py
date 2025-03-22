@@ -1,17 +1,24 @@
 import logging
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from .const import DOMAIN, CONF_API_TOKEN
 
 _LOGGER = logging.getLogger(__name__)
-
 API_ENDPOINT = "/api/persistent_notification"
 
-class PersistentNotificationSensor(SensorEntity):
-    """Sensor that shows the number of active persistent notifications."""
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+    """Set up the sensor platform."""
+    token = config.get(CONF_API_TOKEN)
+    if not token:
+        _LOGGER.error("No API token provided in configuration.yaml!")
+        return
 
-    def __init__(self, hass):
-        """Initialize the sensor."""
+    async_add_entities([PersistentNotificationSensor(hass, token)], True)
+
+class PersistentNotificationSensor(SensorEntity):
+    def __init__(self, hass, token):
         self._hass = hass
+        self._token = token
         self._state = None
         self._attributes = {}
 
@@ -28,33 +35,29 @@ class PersistentNotificationSensor(SensorEntity):
         return self._attributes
 
     async def async_update(self):
-        """Fetch persistent notifications from the Home Assistant API."""
+        session = async_get_clientsession(self._hass)
+        url = f"{self._hass.config.api.base_url}{API_ENDPOINT}"
+
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Content-Type": "application/json",
+        }
+
         try:
-            session = async_get_clientsession(self._hass)
-            url = f"{self._hass.config.api.base_url}{API_ENDPOINT}"
-
-            headers = {
-                "Authorization": f"Bearer {self._hass.data['my_persistent_notifications_token']}",
-                "Content-Type": "application/json",
-            }
-
             async with session.get(url, headers=headers) as response:
                 if response.status != 200:
-                    _LOGGER.error("Error fetching notifications, status: %s", response.status)
+                    _LOGGER.error("API error: %s", response.status)
                     self._state = 0
-                    self._attributes = {"error": f"Status {response.status}"}
+                    self._attributes = {"error": f"HTTP {response.status}"}
                     return
 
                 data = await response.json()
-
                 self._state = len(data)
                 self._attributes = {
                     "notifications": data
                 }
 
         except Exception as e:
-            _LOGGER.error("Exception while fetching persistent notifications: %s", e)
+            _LOGGER.exception("Failed to fetch notifications: %s", e)
             self._state = 0
-            self._attributes = {
-                "error": str(e)
-            }
+            self._attributes = {"error": str(e)}
