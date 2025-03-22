@@ -1,25 +1,18 @@
 import logging
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from .const import DOMAIN, CONF_API_TOKEN
 
 _LOGGER = logging.getLogger(__name__)
-API_ENDPOINT = "/api/persistent_notification"
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Set up the sensor platform."""
-    token = config.get(CONF_API_TOKEN)
-    if not token:
-        _LOGGER.error("No API token provided in configuration.yaml!")
-        return
-
-    async_add_entities([PersistentNotificationSensor(hass, token)], True)
+    """Set up the persistent notification sensor."""
+    async_add_entities([PersistentNotificationSensor(hass)], True)
 
 class PersistentNotificationSensor(SensorEntity):
-    def __init__(self, hass, token):
+    """Sensor to track active persistent notifications."""
+
+    def __init__(self, hass):
         self._hass = hass
-        self._token = token
-        self._state = None
+        self._state = 0
         self._attributes = {}
 
     @property
@@ -35,29 +28,31 @@ class PersistentNotificationSensor(SensorEntity):
         return self._attributes
 
     async def async_update(self):
-        session = async_get_clientsession(self._hass)
-        url = f"{self._hass.config.api.base_url}{API_ENDPOINT}"
-
-        headers = {
-            "Authorization": f"Bearer {self._token}",
-            "Content-Type": "application/json",
-        }
-
+        """Update the sensor state."""
         try:
-            async with session.get(url, headers=headers) as response:
-                if response.status != 200:
-                    _LOGGER.error("API error: %s", response.status)
-                    self._state = 0
-                    self._attributes = {"error": f"HTTP {response.status}"}
-                    return
+            # Haal meldingen op via Home Assistant helper
+            notifications = self._hass.data.get("persistent_notification")
 
-                data = await response.json()
-                self._state = len(data)
-                self._attributes = {
-                    "notifications": data
-                }
+            if not notifications:
+                self._state = 0
+                self._attributes = {"notifications": []}
+                return
+
+            active = []
+            for notif_id, notif in notifications.items():
+                if not notif.get("dismissed", False):
+                    active.append({
+                        "id": notif_id,
+                        "title": notif.get("title"),
+                        "message": notif.get("message"),
+                    })
+
+            self._state = len(active)
+            self._attributes = {
+                "notifications": active
+            }
 
         except Exception as e:
-            _LOGGER.exception("Failed to fetch notifications: %s", e)
+            _LOGGER.error("Fout bij ophalen meldingen: %s", e)
             self._state = 0
             self._attributes = {"error": str(e)}
